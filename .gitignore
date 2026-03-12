@@ -9,7 +9,6 @@ build/
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb_checkpoints
 
 # Environnements
 .env
@@ -17,16 +16,19 @@ build/
 venv/
 env/
 
-# Dataset (ne pas versionner les données)
+# Dataset
 DAiSEE/
 *.avi
 *.mp4
 
-# Outputs & modèles (volumineux)
-outputs/checkpoints/*.pt
-outputs/checkpoints/*.onnx
+# Modèles ML
+*.pt
+*.onnx
 
-# Garder la structure des dossiers
+# Outputs
+outputs/
+
+# Garder dossiers vides
 !outputs/checkpoints/.gitkeep
 !outputs/logs/.gitkeep
 !outputs/figures/.gitkeep
@@ -34,7 +36,6 @@ outputs/checkpoints/*.onnx
 # IDE
 .vscode/
 .idea/
-*.swp
 
 # OS
 .DS_Store
