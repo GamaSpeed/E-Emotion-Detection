@@ -1,0 +1,33 @@
+# Dataset (trop lourd)
+DAiSEE/
+*.avi
+*.mp4
+
+# MLflow / logs
+mlruns/
+mlflow.db
+notebooks/mlruns/
+notebooks/mlflow.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Git
+.git/
+.gitignore
+
+# Jupyter
+notebooks/.ipynb_checkpoints/
+*.ipynb
+
+# Env
+.env
+*.env

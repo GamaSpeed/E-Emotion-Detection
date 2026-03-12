@@ -1,0 +1,45 @@
+version: "3.9"
+
+services:
+
+  # Backend FastAPI 
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: edusense-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - CONFIG_PATH=configs/config.yaml
+      - CHECKPOINT_PATH=outputs/checkpoints/best_model.pt
+      - DEVICE=cpu          # changer en "cuda" si GPU disponible
+    volumes:
+      - ./configs:/app/configs:ro
+      - ./notebooks/outputs:/app/outputs:ro
+      - ./src:/app/src:ro
+    # Accès caméra serveur (Linux uniquement)
+    # devices:
+    #   - /dev/video0:/dev/video0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend React 
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: edusense-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  default:
+    name: edusense-network
