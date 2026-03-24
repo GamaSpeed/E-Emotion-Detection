@@ -1,60 +1,62 @@
-# config.yaml — Hyperparamètres & Chemins du Projet DAiSEE
+# config.yaml — Run 6 : mode binaire
+# Changements vs Run 5 :
+#   - n_classes : 4 -> 2 (binaire : Low vs High)
+#   - learning_rate : 1e-4 -> 3e-4 (Run 2 avait 3e-4 = meilleur)
+#   - binary : true (nouveau parametre)
 
-# --- Chemins du dataset ---
 paths:
-  dataset_root: "D:/Facial_Emotion_Detection/DAiSEE"
+  dataset_root:    "D:/Facial_Emotion_Detection/DAiSEE"
   train_video_dir: "D:/Facial_Emotion_Detection/DAiSEE/DataSet/Train"
   val_video_dir:   "D:/Facial_Emotion_Detection/DAiSEE/DataSet/Validation"
   test_video_dir:  "D:/Facial_Emotion_Detection/DAiSEE/DataSet/Test"
   train_labels:    "D:/Facial_Emotion_Detection/DAiSEE/Labels/TrainLabels.csv"
   val_labels:      "D:/Facial_Emotion_Detection/DAiSEE/Labels/ValidationLabels.csv"
   test_labels:     "D:/Facial_Emotion_Detection/DAiSEE/Labels/TestLabels.csv"
+  all_labels:      "D:/Facial_Emotion_Detection/DAiSEE/Labels/AllLabels.csv"
   output_dir:      "./outputs"
   checkpoint_dir:  "./outputs/checkpoints"
   log_dir:         "./outputs/logs"
   figures_dir:     "./outputs/figures"
 
-# --- Dataset ---
 dataset:
-  n_frames: 8          # Nombre de frames extraites par clip (réduit pour 4-6GB VRAM)
-  image_size: 224       # Taille des frames (224x224)
-  face_detection: true  # Activer MTCNN avec fallback sur frame entière
+  n_frames: 16
+  image_size: 224
+  face_detection: false
+  binary: true              # <- Run 6 : L0+L1=0 (Low), L2+L3=1 (High)
 
-# --- Modèle ---
 model:
   backbone: "efficientnet_b2"
   pretrained: true
-  hidden_size: 256      # Réduit pour 4-6GB VRAM (512 si plus de VRAM)
+  hidden_size: 256
   gru_layers: 2
   gru_dropout: 0.3
   n_attention_heads: 8
-  n_classes: 4          # Very Low, Low, High, Very High
+  n_classes: 2              # <- Run 6 : etait 4
   dropout_classifier: 0.4
 
-# --- Entraînement ---
 training:
-  learning_rate: 3.0e-4
+  learning_rate: 3.0e-4     # <- Run 6 : retour a 3e-4 (1e-4 trop lent en Run 5)
   weight_decay: 1.0e-4
-  epochs: 50
+  epochs: 60
   batch_size: 4
   accumulation_steps: 8
-  mixed_precision: true      # ← ajouter cette ligne
+  mixed_precision: true
   early_stopping_patience: 15
-  unfreeze_epoch: 5
-  use_mixup: true
+  unfreeze_epoch: 10
+  use_mixup: false
   label_smoothing: 0.1
-  num_workers: 2 
+  num_workers: 2
+  oversample: false
+  sanity_check_epoch: 10
+  sanity_check_threshold: 30.0  # seuil plus haut en binaire — 12% etait pour 4-classes
 
-# --- Scheduler ---
 scheduler:
   name: "cosine_annealing"
-  T_max: 50
+  T_max: 60
   eta_min: 1.0e-6
 
-# --- Labels ---
 labels:
   names: ["Boredom", "Engagement", "Confusion", "Frustration"]
-  levels: ["Very Low", "Low", "High", "Very High"]
+  levels: ["Low", "High"]   # <- Run 6 : 2 niveaux seulement
 
-# --- Reproductibilité ---
 seed: 42

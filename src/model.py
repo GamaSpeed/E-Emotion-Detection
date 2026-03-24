@@ -5,7 +5,7 @@ Architecture multi-tâche : 4 têtes (Boredom, Engagement, Confusion, Frustratio
 
 import torch
 import torch.nn as nn
-from torchvision.models import efficientnet_b4, EfficientNet_B4_Weights
+from torchvision.models import efficientnet_b2, EfficientNet_B2_Weights
 
 
 class EmotionModel(nn.Module):
@@ -43,11 +43,11 @@ class EmotionModel(nn.Module):
         super().__init__()
         self.hidden_size = hidden_size
 
-        # 1. Backbone CNN : EfficientNet-B4
-        backbone = efficientnet_b4(weights=EfficientNet_B4_Weights.DEFAULT)
+        # 1. Backbone CNN : EfficientNet-B2
+        backbone = efficientnet_b2(weights=EfficientNet_B2_Weights.DEFAULT)
         # Supprimer le classifier final → garder seulement le feature extractor
         self.cnn = nn.Sequential(*list(backbone.children())[:-1])
-        self.feat_dim = 1792  # Dimension de sortie d'EfficientNet-B4
+        self.feat_dim = 1408  # Dimension de sortie d'EfficientNet-B2
 
         # Geler le backbone au début (fine-tuning progressif)
         if freeze_backbone:
@@ -120,8 +120,8 @@ class EmotionModel(nn.Module):
 
         # Extraction CNN (frame par frame) 
         # Reshape (B*T, C, H, W) → CNN → Reshape (B, T, feat_dim)
-        cnn_out = self.cnn(x.view(B * T, C, H, W))       # (B*T, 1792, 1, 1)
-        cnn_out = cnn_out.view(B, T, self.feat_dim)       # (B, T, 1792)
+        cnn_out = self.cnn(x.view(B * T, C, H, W))       # (B*T, 1408, 1, 1)
+        cnn_out = cnn_out.view(B, T, self.feat_dim)       # (B, T, 1408)
 
         # Projection 
         proj = self.input_proj(cnn_out)                   # (B, T, hidden_size)
