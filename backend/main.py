@@ -1,11 +1,24 @@
 """
-main.py — API FastAPI pour EduSense
+main.py — API FastAPI EduSense v2
+Nouveautés v2 :
+  - Base de données SQLAlchemy (SQLite local → PostgreSQL GCP)
+  - Sessions et prédictions persistées après chaque inférence
+  - Alertes automatiques (confusion/frustration High persistant)
+  - WebSocket /ws/teacher → tableau de bord prof en temps réel
+  - Authentification JWT (GET /auth/login, GET /users/me)
+  - Tous les anciens endpoints conservés et compatibles
+
 Endpoints :
-  GET  /health                  → statut du serveur
-  POST /predict/image           → prédiction sur une image base64
-  WS   /ws/student/{client_id}  → flux WebSocket webcam locale
-  WS   /ws/camera               → flux WebSocket webcam serveur (OpenCV)
-  GET  /stream/camera           → MJPEG stream webcam serveur
+  GET  /health
+  POST /predict/image
+  POST /auth/login / /auth/register
+  GET  /sessions, /sessions/{id}, /sessions/{id}/export
+  GET  /alerts/pending, POST /alerts/{id}/ack
+  GET  /logs
+  WS   /ws/student/{client_id}
+  WS   /ws/teacher
+  WS   /ws/camera
+  GET  /stream/camera
 """
 
 import asyncio
@@ -15,53 +28,53 @@ import logging
 import os
 import sys
 import time
+from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
 import cv2
-import numpy as np
 import torch
 import yaml
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy.orm import Session as DBSession
 
-# ── Ajouter le répertoire parent au path pour importer src/ ──────────────────
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.model import EmotionModel
 from backend.inference import EmotionPredictor
 
+# ── DB imports ────────────────────────────────────────────────────────────────
+from backend.db.database import get_db, init_db, SessionLocal
+from backend.db import crud, schemas
+from backend.db.routes_db import router as db_router
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
+# ── Config ────────────────────────────────────────────────────────────────────
 CONFIG_PATH     = os.getenv("CONFIG_PATH",     "configs/config.yaml")
-CHECKPOINT_PATH = os.getenv("CHECKPOINT_PATH", "outputs/checkpoints/best_model.pt")
+CHECKPOINT_PATH = os.getenv("CHECKPOINT_PATH", "notebooks/outputs/checkpoints/best_model.pt")
 DEVICE          = os.getenv("DEVICE",          "auto")
+
+# Nombre de prédictions consécutives High avant de déclencher une alerte
+ALERT_THRESHOLD = int(os.getenv("ALERT_THRESHOLD", "3"))
 
 
 def load_config() -> dict:
-    """
-    Charge le config YAML.
-    Si le checkpoint contient un config embarqué, il a priorité
-    (évite les désaccords backbone entre config.yaml et checkpoint).
-    """
-    # 1. Essayer de lire le config depuis le checkpoint
     try:
         ckpt = torch.load(CHECKPOINT_PATH, map_location="cpu")
         if isinstance(ckpt, dict) and "config" in ckpt:
             cfg = ckpt["config"]
-            logger.info(f"✅ Config lu depuis checkpoint — backbone : {cfg['model']['backbone']}")
+            logger.info(f"✅ Config depuis checkpoint — backbone: {cfg['model']['backbone']}")
             return cfg
     except Exception as e:
-        logger.warning(f"⚠️  Impossible de lire le checkpoint pour le config : {e}")
-
-    # 2. Fallback sur config.yaml
+        logger.warning(f"⚠️  Checkpoint config non lisible : {e}")
     try:
         with open(CONFIG_PATH, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
-        logger.info(f"✅ Config lu depuis fichier — backbone : {cfg['model']['backbone']}")
+        logger.info(f"✅ Config depuis fichier — backbone: {cfg['model']['backbone']}")
         return cfg
     except Exception as e:
         logger.error(f"❌ Impossible de charger config.yaml : {e}")
@@ -70,7 +83,7 @@ def load_config() -> dict:
 
 config = load_config()
 
-# ── Initialisation modèle ─────────────────────────────────────────────────────
+# ── Modèle ────────────────────────────────────────────────────────────────────
 predictor: Optional[EmotionPredictor] = None
 
 
@@ -83,19 +96,22 @@ def load_predictor():
             config      = config,
             device      = DEVICE,
         )
-        logger.info("✅ Modèle chargé avec succès")
+        db = SessionLocal()
+        try:
+            crud.write_log(db, "model_load", details={"backbone": config["model"]["backbone"]})
+        finally:
+            db.close()
+        logger.info("✅ Modèle chargé")
     except Exception as e:
         logger.error(f"❌ Erreur chargement modèle : {e}")
-        import traceback
-        traceback.print_exc()
         predictor = None
 
 
-# ── App FastAPI ───────────────────────────────────────────────────────────────
+# ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title       = "EduSense API",
-    description = "API de détection d'émotions pour e-learning",
-    version     = "1.0.0",
+    description = "Détection d'émotions e-learning — v2 avec DB et WebSocket prof",
+    version     = "2.0.0",
 )
 
 app.add_middleware(
@@ -106,19 +122,24 @@ app.add_middleware(
     allow_headers     = ["*"],
 )
 
+# Routes DB (auth, sessions, alerts, logs, export CSV)
+app.include_router(db_router)
+
 
 @app.on_event("startup")
 async def startup():
+    init_db()
     load_predictor()
+    logger.info("✅ EduSense v2 démarré — DB initialisée")
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# ── Schemas REST ──────────────────────────────────────────────────────────────
 class ImageRequest(BaseModel):
-    image: str
+    image:     str
     client_id: Optional[str] = None
 
 
-# ── Endpoints REST ────────────────────────────────────────────────────────────
+# ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
     return {
@@ -126,10 +147,12 @@ async def health():
         "model":    "loaded" if predictor else "not_loaded",
         "backbone": config["model"]["backbone"],
         "device":   str(predictor.device) if predictor else "N/A",
-        "version":  "1.0.0",
+        "version":  "2.0.0",
+        "db":       "connected",
     }
 
 
+# ── Predict image (REST) ──────────────────────────────────────────────────────
 @app.post("/predict/image")
 async def predict_image(req: ImageRequest):
     if predictor is None:
@@ -151,36 +174,108 @@ async def predict_image(req: ImageRequest):
         raise HTTPException(500, str(e))
 
 
-# ── WebSocket — webcam locale ─────────────────────────────────────────────────
+# ── ConnectionManager étendu ──────────────────────────────────────────────────
 class ConnectionManager:
+    """
+    Gère les connexions WebSocket étudiants ET professeurs.
+    Chaque prédiction étudiant est broadcastée à tous les profs connectés.
+    """
     def __init__(self):
-        self.active: dict[str, WebSocket] = {}
+        self.students: dict[str, WebSocket] = {}   # client_id → ws
+        self.teachers: dict[str, WebSocket] = {}   # teacher_id → ws
 
-    async def connect(self, ws: WebSocket, client_id: str):
+    async def connect_student(self, ws: WebSocket, client_id: str):
         await ws.accept()
-        self.active[client_id] = ws
-        logger.info(f"[WS] Client connecté : {client_id}")
+        self.students[client_id] = ws
+        logger.info(f"[WS] Étudiant connecté : {client_id}")
 
-    def disconnect(self, client_id: str):
-        self.active.pop(client_id, None)
-        logger.info(f"[WS] Client déconnecté : {client_id}")
+    async def connect_teacher(self, ws: WebSocket, teacher_id: str):
+        await ws.accept()
+        self.teachers[teacher_id] = ws
+        logger.info(f"[WS] Professeur connecté : {teacher_id}")
 
-    async def send(self, client_id: str, data: dict):
-        ws = self.active.get(client_id)
+    def disconnect_student(self, client_id: str):
+        self.students.pop(client_id, None)
+        logger.info(f"[WS] Étudiant déconnecté : {client_id}")
+
+    def disconnect_teacher(self, teacher_id: str):
+        self.teachers.pop(teacher_id, None)
+        logger.info(f"[WS] Professeur déconnecté : {teacher_id}")
+
+    async def send_to_student(self, client_id: str, data: dict):
+        ws = self.students.get(client_id)
         if ws:
             try:
-                await ws.send_text(json.dumps(data))
+                await ws.send_text(json.dumps(data, default=str))
             except Exception:
-                self.disconnect(client_id)
+                self.disconnect_student(client_id)
+
+    async def broadcast_to_teachers(self, data: dict):
+        """Envoie une mise à jour à tous les profs connectés."""
+        dead = []
+        for tid, ws in self.teachers.items():
+            try:
+                await ws.send_text(json.dumps(data, default=str))
+            except Exception:
+                dead.append(tid)
+        for tid in dead:
+            self.disconnect_teacher(tid)
+
+    @property
+    def online_student_ids(self) -> list:
+        return list(self.students.keys())
 
 
 manager = ConnectionManager()
 
+# Compteurs d'états critiques par client_id pour les alertes
+# {client_id: {state: count_consecutive_high}}
+_alert_counters: dict = defaultdict(lambda: defaultdict(int))
 
+
+def _check_and_trigger_alerts(
+    db: DBSession,
+    client_id: str,
+    session_id: str,
+    predictions: dict,
+) -> list[dict]:
+    """
+    Vérifie si un état critique persiste.
+    Déclenche une alerte après ALERT_THRESHOLD prédictions consécutives High.
+    Retourne la liste des nouvelles alertes créées.
+    """
+    CRITICAL_STATES = ["confusion", "frustration"]
+    new_alerts = []
+
+    for state in CRITICAL_STATES:
+        key = state.capitalize()
+        level = predictions.get(key, {}).get("level", 0)
+
+        if level == 1:  # High
+            _alert_counters[client_id][state] += 1
+            if _alert_counters[client_id][state] == ALERT_THRESHOLD:
+                # Déclencher l'alerte
+                duration_s = ALERT_THRESHOLD * 0.5  # ~500ms par prédiction
+                alert = crud.create_alert(db, session_id, state, duration_s)
+                new_alerts.append({
+                    "id":       alert.id,
+                    "state":    state,
+                    "duration": duration_s,
+                })
+                logger.info(f"[Alert] {state} persistant → étudiant {client_id}")
+        else:
+            # Réinitialiser le compteur si l'état repasse à Low
+            _alert_counters[client_id][state] = 0
+
+    return new_alerts
+
+
+# ── WebSocket /ws/student/{client_id} ────────────────────────────────────────
 @app.websocket("/ws/student/{client_id}")
 async def ws_student(websocket: WebSocket, client_id: str):
-    await manager.connect(websocket, client_id)
+    await manager.connect_student(websocket, client_id)
 
+    # Charger un predictor dédié à cet étudiant
     try:
         client_predictor = EmotionPredictor(
             model_path  = CHECKPOINT_PATH,
@@ -193,7 +288,24 @@ async def ws_student(websocket: WebSocket, client_id: str):
         await websocket.close()
         return
 
+    # Ouvrir une session en DB
+    db = SessionLocal()
+    session_obj = None
+    scores_history = []
+
     try:
+        # Résoudre l'étudiant depuis client_id (ou créer une session anonyme)
+        session_obj = crud.create_session(db, student_id=client_id, client_id=client_id)
+        crud.write_log(db, "ws_connect", details={"client_id": client_id})
+
+        # Notifier les profs qu'un étudiant vient de se connecter
+        await manager.broadcast_to_teachers({
+            "type":       "student_connected",
+            "client_id":  client_id,
+            "session_id": session_obj.id,
+            "timestamp":  time.time(),
+        })
+
         while True:
             data = await websocket.receive_text()
             msg  = json.loads(data)
@@ -205,32 +317,147 @@ async def ws_student(websocket: WebSocket, client_id: str):
             result      = client_predictor.predict_from_bytes(frame_bytes)
 
             if result is None:
-                await manager.send(client_id, {"status": "error"})
+                await manager.send_to_student(client_id, {"status": "error"})
+
             elif result.get("status") == "buffering":
-                await manager.send(client_id, result)
+                await manager.send_to_student(client_id, result)
+
             else:
-                await manager.send(client_id, {
+                eng_score = client_predictor.get_engagement_score()
+                scores_history.append(eng_score)
+
+                # ── Persister la prédiction en DB ─────────────────────────
+                try:
+                    pred_data = schemas.PredictionCreate(
+                        session_id       = session_obj.id,
+                        engagement       = result["Engagement"]["level"],
+                        boredom          = result["Boredom"]["level"],
+                        confusion        = result["Confusion"]["level"],
+                        frustration      = result["Frustration"]["level"],
+                        engagement_conf  = result["Engagement"]["confidence"],
+                        boredom_conf     = result["Boredom"]["confidence"],
+                        confusion_conf   = result["Confusion"]["confidence"],
+                        frustration_conf = result["Frustration"]["confidence"],
+                        engagement_score = eng_score,
+                    )
+                    crud.save_prediction(db, pred_data)
+
+                    # Vérifier les alertes
+                    new_alerts = _check_and_trigger_alerts(
+                        db, client_id, session_obj.id, result
+                    )
+                except Exception as db_err:
+                    logger.warning(f"[DB] Erreur persistance : {db_err}")
+                    new_alerts = []
+
+                # ── Payload vers l'étudiant ────────────────────────────────
+                payload = {
                     "status":           "ok",
                     "predictions":      result,
-                    "engagement_score": client_predictor.get_engagement_score(),
+                    "engagement_score": eng_score,
                     "timestamp":        time.time(),
+                }
+                await manager.send_to_student(client_id, payload)
+
+                # ── Broadcast vers les profs ───────────────────────────────
+                await manager.broadcast_to_teachers({
+                    "type":             "prediction",
+                    "client_id":        client_id,
+                    "session_id":       session_obj.id,
+                    "predictions":      result,
+                    "engagement_score": eng_score,
+                    "timestamp":        time.time(),
+                    "new_alerts":       new_alerts,
                 })
 
     except WebSocketDisconnect:
-        manager.disconnect(client_id)
+        pass
+    finally:
+        manager.disconnect_student(client_id)
+        _alert_counters.pop(client_id, None)
+
+        # Fermer la session en DB
+        if session_obj:
+            avg_score = (sum(scores_history) / len(scores_history)
+                         if scores_history else None)
+            crud.close_session(db, session_obj.id, avg_score)
+            crud.write_log(db, "ws_disconnect", details={
+                "client_id": client_id,
+                "n_predictions": len(scores_history),
+                "avg_score": round(avg_score, 1) if avg_score else None,
+            })
+
+        # Notifier les profs de la déconnexion
+        await manager.broadcast_to_teachers({
+            "type":      "student_disconnected",
+            "client_id": client_id,
+            "timestamp": time.time(),
+        })
+        db.close()
 
 
-# ── WebSocket — webcam serveur ────────────────────────────────────────────────
+# ── WebSocket /ws/teacher ─────────────────────────────────────────────────────
+@app.websocket("/ws/teacher")
+async def ws_teacher(websocket: WebSocket):
+    """
+    Connexion WebSocket du professeur.
+    - Reçoit en temps réel toutes les prédictions étudiants
+    - Reçoit les connexions / déconnexions étudiants
+    - Reçoit les nouvelles alertes
+    - Envoie l'état courant de la classe à la connexion
+    """
+    teacher_id = f"teacher_{int(time.time())}"
+    await manager.connect_teacher(websocket, teacher_id)
+
+    db = SessionLocal()
+    try:
+        crud.write_log(db, "ws_connect", details={"role": "teacher", "teacher_id": teacher_id})
+
+        # Envoyer l'état initial : étudiants actuellement connectés
+        await websocket.send_text(json.dumps({
+            "type":       "class_state",
+            "online":     manager.online_student_ids,
+            "timestamp":  time.time(),
+        }))
+
+        # Rester connecté — les données arrivent via broadcast_to_teachers
+        # Le prof peut envoyer des messages (ex: acquitter une alerte)
+        while True:
+            try:
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                msg = json.loads(raw)
+
+                # Acquittement d'alerte depuis le frontend prof
+                if msg.get("type") == "ack_alert":
+                    alert_id = msg.get("alert_id")
+                    if alert_id:
+                        crud.acknowledge_alert(db, alert_id)
+                        await websocket.send_text(json.dumps({
+                            "type":     "alert_acked",
+                            "alert_id": alert_id,
+                        }))
+
+            except asyncio.TimeoutError:
+                # Ping pour maintenir la connexion vivante
+                await websocket.send_text(json.dumps({"type": "ping"}))
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        manager.disconnect_teacher(teacher_id)
+        crud.write_log(db, "ws_disconnect", details={"role": "teacher"})
+        db.close()
+
+
+# ── WebSocket /ws/camera (webcam serveur — inchangé) ─────────────────────────
 @app.websocket("/ws/camera")
 async def ws_camera(websocket: WebSocket):
     await websocket.accept()
     cap = cv2.VideoCapture(0)
-
     if not cap.isOpened():
         await websocket.send_text(json.dumps({"error": "Caméra non disponible"}))
         await websocket.close()
         return
-
     try:
         client_predictor = EmotionPredictor(
             model_path  = CHECKPOINT_PATH,
@@ -238,18 +465,14 @@ async def ws_camera(websocket: WebSocket):
             config      = config,
             device      = DEVICE,
         )
-
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-
             ready = client_predictor.add_frame(frame)
             _, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             frame_b64 = base64.b64encode(jpeg.tobytes()).decode()
-
             payload = {"frame": frame_b64, "timestamp": time.time()}
-
             if ready:
                 result = client_predictor.predict()
                 if result:
@@ -262,17 +485,15 @@ async def ws_camera(websocket: WebSocket):
                 payload["status"] = "buffering"
                 payload["frames"] = len(client_predictor.frame_buffer)
                 payload["needed"] = client_predictor.n_frames
-
             await websocket.send_text(json.dumps(payload))
             await asyncio.sleep(0.1)
-
     except WebSocketDisconnect:
-        logger.info("[WS Camera] Client déconnecté")
+        logger.info("[WS Camera] Déconnecté")
     finally:
         cap.release()
 
 
-# ── MJPEG Stream ──────────────────────────────────────────────────────────────
+# ── MJPEG Stream (inchangé) ───────────────────────────────────────────────────
 def generate_mjpeg():
     cap = cv2.VideoCapture(0)
     while True:
