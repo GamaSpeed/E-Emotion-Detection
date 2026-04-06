@@ -56,7 +56,7 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id            = Column(String(36), primary_key=True, default=new_uuid)
-    student_id    = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    student_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     client_id     = Column(String(100), nullable=False)   # ex: "student_1742000000"
     started_at    = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     ended_at      = Column(DateTime(timezone=True), nullable=True)

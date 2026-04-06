@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 // Comptes démo — remplis automatiquement le formulaire (mot de passe non exposé)
 const DEMO_ACCOUNTS = [

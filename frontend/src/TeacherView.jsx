@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 const WS_URL  = import.meta.env.VITE_WS_URL  || "ws://localhost:8000";
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 const STATES = {
   Engagement:  { color: "#22D3A5", emoji: "🎯", label: "Engagement"  },

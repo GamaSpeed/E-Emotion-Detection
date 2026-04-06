@@ -295,7 +295,7 @@ async def ws_student(websocket: WebSocket, client_id: str):
 
     try:
         # Résoudre l'étudiant depuis client_id (ou créer une session anonyme)
-        session_obj = crud.create_session(db, student_id=client_id, client_id=client_id)
+        session_obj = crud.create_session(db, student_id=None, client_id=client_id)
         crud.write_log(db, "ws_connect", details={"client_id": client_id})
 
         # Notifier les profs qu'un étudiant vient de se connecter
