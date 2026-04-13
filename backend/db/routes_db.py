@@ -61,6 +61,19 @@ def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
+@router.get("/users/{user_id}", response_model=schemas.UserOut)
+def get_user_by_id(
+    user_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_teacher),
+):
+    """Récupère un utilisateur par son ID — utilisé par TeacherView pour résoudre les noms."""
+    user = crud.get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    return user
+
+
 @router.get("/students", response_model=list[schemas.UserOut])
 def list_students(
     db: Session = Depends(get_db),

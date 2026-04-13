@@ -66,7 +66,8 @@ export default function StudentView({ user, onLogout }) {
   const canvasRef   = useRef(null);
   const wsRef       = useRef(null);
   const timerRef    = useRef(null);
-  const clientId    = useRef(`student_${Date.now()}`);
+  // Utiliser l'ID utilisateur réel comme client_id pour résolution du nom côté backend
+  const clientId    = useRef(user?.id || `student_${Date.now()}`);
 
   const [status,       setStatus]       = useState("idle");      // idle | connecting | connected | buffering | error
   const [isStreaming,  setIsStreaming]   = useState(false);
@@ -103,6 +104,19 @@ export default function StudentView({ user, onLogout }) {
 
     ws.onopen = () => { setStatus("connected"); setIsStreaming(true); };
 
+    // Ping toutes les 30s pour maintenir la connexion Cloud Run active
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 30000);
+
+    ws.onclose = () => {
+      clearInterval(pingInterval);
+      setStatus("idle");
+      setIsStreaming(false);
+    };
+
     ws.onmessage = (evt) => {
       const data = JSON.parse(evt.data);
       if (data.status === "buffering") {
@@ -125,7 +139,6 @@ export default function StudentView({ user, onLogout }) {
     };
 
     ws.onerror = () => setStatus("error");
-    ws.onclose = () => { setStatus("idle"); setIsStreaming(false); };
 
     // Envoyer frames
     timerRef.current = setInterval(() => {

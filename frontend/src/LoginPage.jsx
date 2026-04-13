@@ -2,11 +2,7 @@ import { useState } from "react";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
-// Comptes démo — remplis automatiquement le formulaire (mot de passe non exposé)
-const DEMO_ACCOUNTS = [
-  { label: "👨‍🏫 Professeur", email: "prof@edusense.ai",     password: "prof123"     },
-  { label: "👨‍🎓 Étudiant",   email: "etudiant@edusense.ai", password: "etudiant123" },
-];
+
 
 export default function LoginPage({ onLogin }) {
   const [email,    setEmail]    = useState("");
@@ -14,7 +10,7 @@ export default function LoginPage({ onLogin }) {
   const [error,    setError]    = useState("");
   const [loading,  setLoading]  = useState(false);
 
-  const fill = (e, p) => { setEmail(e); setPassword(p); setError(""); };
+
 
   const handleSubmit = async (ev) => {
     ev.preventDefault();
@@ -73,13 +69,7 @@ export default function LoginPage({ onLogin }) {
         }
         .inp:focus { border-color: #22D3A5; }
         .inp::placeholder { color: rgba(255,255,255,0.25); }
-        .dbtn {
-          flex: 1; padding: 4px; border-radius: 8px; cursor: pointer; text-align: left;
-          background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-          color: rgba(255,255,255,0.55); font-size: 12px; transition: background .15s;
-          font-family: inherit;
-        }
-        .dbtn:hover { background: rgba(255,255,255,0.08); }
+
         .btn-submit {
           width: 100%; padding: 12px; border-radius: 10px;
           background: linear-gradient(135deg,#22D3A5,#6B7FD4);
@@ -162,28 +152,6 @@ export default function LoginPage({ onLogin }) {
           </form>
         </div>
 
-        {/* Comptes démo */}
-        <div style={{
-          marginTop: 14, background: "rgba(255,255,255,0.02)",
-          border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: "14px 16px",
-        }}>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
-            Comptes démo
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {DEMO_ACCOUNTS.map(({ label, email: e, password: p }) => (
-              <button key={e} className="dbtn" onClick={() => fill(e, p)}>
-                <div style={{ fontWeight: 600, marginBottom: 2, padding: "4px 6px" }}>{label}</div>
-                <div style={{ color: "rgba(255,255,255,0.25)", fontSize: 10, padding: "0 6px 4px" }}>{e}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Info serveur */}
-        <div style={{ marginTop: 10, textAlign: "center", fontSize: 10, color: "rgba(255,255,255,0.15)" }}>
-          Serveur : {API_URL}
-        </div>
       </div>
     </div>
   );

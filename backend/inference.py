@@ -61,7 +61,7 @@ class EmotionPredictor:
             dropout_clf = cfg_m.get("dropout_classifier", 0.4),
         ).to(self.device)
 
-        checkpoint = torch.load(model_path, map_location=self.device)
+        checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
         state_dict = checkpoint.get("model_state", checkpoint)
         self.model.load_state_dict(state_dict)
         self.model.eval()

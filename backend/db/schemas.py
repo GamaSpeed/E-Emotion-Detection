@@ -57,7 +57,7 @@ class TokenResponse(BaseModel):
 # ── Sessions ──────────────────────────────────────────────────────────────────
 class SessionOut(BaseModel):
     id:                  str
-    student_id:          str
+    student_id:          Optional[str] = None
     client_id:           str
     started_at:          datetime
     ended_at:            Optional[datetime] = None
