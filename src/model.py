@@ -44,7 +44,9 @@ class EmotionModel(nn.Module):
         self.hidden_size = hidden_size
 
         # 1. Backbone CNN : EfficientNet-B2
-        backbone = efficientnet_b2(weights=EfficientNet_B2_Weights.DEFAULT)
+        # weights=None — les poids préentraînés sont dans le checkpoint Run 6
+        # On évite le téléchargement et la vérification de hash au démarrage
+        backbone = efficientnet_b2(weights=None)
         # Supprimer le classifier final → garder seulement le feature extractor
         self.cnn = nn.Sequential(*list(backbone.children())[:-1])
         self.feat_dim = 1408  # Dimension de sortie d'EfficientNet-B2

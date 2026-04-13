@@ -4,10 +4,10 @@ websockets==12.0
 python-multipart==0.0.9
 pydantic==2.7.0
 opencv-python-headless==4.10.0.84
-torch>=2.0.0
-torchvision>=0.15.0
+torch==2.1.0
+torchvision==0.16.0
 timm>=0.9.0
-numpy>=1.24.0
+numpy==1.26.4
 pyyaml>=6.0
 sqlalchemy>=2.0
 passlib[bcrypt]
@@ -15,4 +15,4 @@ python-jose[cryptography]
 pydantic[email]
 alembic
 bcrypt==4.0.1
-psycopg2-binary    # pour PostgreSQL GCP plus tard
+psycopg2-binary

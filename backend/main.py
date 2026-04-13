@@ -295,12 +295,27 @@ async def ws_student(websocket: WebSocket, client_id: str):
 
     try:
         # Résoudre l'étudiant depuis client_id (ou créer une session anonyme)
-        session_obj = crud.create_session(db, student_id=None, client_id=client_id)
         crud.write_log(db, "ws_connect", details={"client_id": client_id})
+
+        # Résoudre le nom de l'étudiant depuis la DB
+        # Le client_id peut être soit l'UUID utilisateur, soit un timestamp student_XXX
+        student_name = None
+        student_user = None
+        try:
+            # Essayer de trouver l'utilisateur par son ID (si client_id = UUID)
+            student_user = crud.get_user_by_id(db, client_id)
+            if student_user:
+                student_name = student_user.name
+                session_obj = crud.create_session(db, student_id=student_user.id, client_id=client_id)
+            else:
+                session_obj = crud.create_session(db, student_id=None, client_id=client_id)
+        except Exception:
+            session_obj = crud.create_session(db, student_id=None, client_id=client_id)
 
         # Notifier les profs qu'un étudiant vient de se connecter
         await manager.broadcast_to_teachers({
-            "type":       "student_connected",
+            "type":         "student_connected",
+            "student_name": student_name,
             "client_id":  client_id,
             "session_id": session_obj.id,
             "timestamp":  time.time(),
@@ -309,6 +324,8 @@ async def ws_student(websocket: WebSocket, client_id: str):
         while True:
             data = await websocket.receive_text()
             msg  = json.loads(data)
+            if msg.get("type") == "ping":
+                continue  # ping client — maintient la connexion active
             if "frame" not in msg:
                 continue
 

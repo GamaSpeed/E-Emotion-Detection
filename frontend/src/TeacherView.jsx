@@ -220,6 +220,25 @@ export default function TeacherView({ user, onLogout }) {
   // Token JWT depuis le localStorage (mis par LoginPage après /auth/login)
   const token = localStorage.getItem("edusense_token") || "";
 
+  // ── Résolution du nom étudiant via REST ──────────────────────────────────
+  const resolveStudentName = useCallback(async (clientId) => {
+    try {
+      const res = await fetch(`${API_URL}/users/${clientId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const name = data.name || data.email || clientId;
+        setStudents(prev => prev[clientId]
+          ? { ...prev, [clientId]: { ...prev[clientId], name } }
+          : prev
+        );
+      }
+    } catch {
+      // silencieux — clientId utilisé comme fallback
+    }
+  }, [token]);
+
   // ── Connexion WebSocket prof ──────────────────────────────────────────────
   useEffect(() => {
     const ws = new WebSocket(`${WS_URL}/ws/teacher`);
@@ -244,19 +263,22 @@ export default function TeacherView({ user, onLogout }) {
               engScore: 0, predictions: null, updatedAt: Date.now(), sessionId: null,
             },
           }));
+          resolveStudentName(clientId);
         });
       }
 
       if (msg.type === "student_connected") {
+        const displayName = msg.student_name || msg.client_id;
         setStudents(prev => ({
           ...prev,
           [msg.client_id]: {
             clientId: msg.client_id,
-            name: msg.client_id,
+            name: displayName,
             online: true, engScore: 0, predictions: null,
             updatedAt: Date.now(), sessionId: msg.session_id,
           },
         }));
+        if (!msg.student_name) resolveStudentName(msg.client_id);
       }
 
       if (msg.type === "student_disconnected") {
